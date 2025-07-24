@@ -42,38 +42,43 @@ class TelegramParserThread(QThread):
     def format_last_online(self, user):
         """Форматирование времени последнего посещения"""
         try:
-            if not hasattr(user, 'status') or not user.status:
+            if not hasattr(user, 'status') or user.status is None:
                 return "Скрыто"
             
-            # Проверяем тип статуса через строковое представление (так работает реально)
+            # Получаем строковое представление статуса для отладки
             status_type = str(type(user.status).__name__)
             
-            if "Online" in status_type:
+            # Проверяем разные варианты названий классов статусов
+            if status_type == "UserStatusOnline":
                 return "Онлайн"
-            elif "Offline" in status_type:
-                # Пытаемся получить точное время если доступно
+            elif status_type == "UserStatusOffline":
                 if hasattr(user.status, 'was_online') and user.status.was_online:
                     return user.status.was_online.strftime("%Y-%m-%d %H:%M:%S")
                 return "Не в сети"
-            elif "Recently" in status_type:
+            elif status_type == "UserStatusRecently":
                 return "Недавно"
-            elif "LastWeek" in status_type:
+            elif status_type == "UserStatusLastWeek":
                 return "На прошлой неделе"  
-            elif "LastMonth" in status_type:
+            elif status_type == "UserStatusLastMonth":
                 return "В прошлом месяце"
-            elif "LongTimeAgo" in status_type:
+            elif status_type == "UserStatusLongTimeAgo":
                 return "Давно"
-            elif "Empty" in status_type:
+            elif status_type == "UserStatusEmpty":
                 return "Скрыто"
             else:
-                return "Неизвестно"
+                # Для отладки - показываем что за тип статуса приходит
+                return f"DEBUG: {status_type}"
                 
-        except Exception:
-            return "Скрыто"
+        except Exception as e:
+            return f"Ошибка: {str(e)[:20]}"
 
     def get_user_status(self, user):
-        """Получение текстового статуса пользователя (то же что и last_online)"""
-        return self.format_last_online(user)
+        """Получение текстового статуса пользователя"""
+        # Возвращаем упрощенную версию статуса
+        status = self.format_last_online(user)
+        if "DEBUG:" in status:
+            return "Неизвестно"
+        return status
 
     async def safe_get_chat_members(self, client, chat_id, limit=None):
         """Безопасное получение участников чата"""
