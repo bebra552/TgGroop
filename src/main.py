@@ -38,6 +38,56 @@ class TelegramParserThread(QThread):
         self.session_name = session_name or "telegram_parser_session"
         self.is_running = True
 
+    def format_last_online(self, user):
+        """Форматирование времени последнего посещения"""
+        if not hasattr(user, 'status') or not user.status:
+            return "Неизвестно"
+        
+        try:
+            if hasattr(user.status, 'date'):
+                # Пользователь был онлайн в определенное время
+                last_seen = user.status.date
+                if last_seen:
+                    return last_seen.strftime("%Y-%m-%d %H:%M:%S")
+            
+            # Определяем статус по типу
+            status_type = type(user.status).__name__
+            if status_type == "UserStatusOnline":
+                return "Онлайн"
+            elif status_type == "UserStatusOffline":
+                if hasattr(user.status, 'was_online'):
+                    return user.status.was_online.strftime("%Y-%m-%d %H:%M:%S")
+                return "Недавно"
+            elif status_type == "UserStatusRecently":
+                return "Недавно"
+            elif status_type == "UserStatusLastWeek":
+                return "На прошлой неделе"
+            elif status_type == "UserStatusLastMonth":
+                return "В прошлом месяце"
+            else:
+                return "Давно"
+        except Exception:
+            return "Неизвестно"
+
+    def get_user_status(self, user):
+        """Получение текстового статуса пользователя"""
+        if not hasattr(user, 'status') or not user.status:
+            return "Неизвестно"
+        
+        try:
+            status_type = type(user.status).__name__
+            status_map = {
+                "UserStatusOnline": "Онлайн",
+                "UserStatusOffline": "Не в сети",
+                "UserStatusRecently": "Недавно",
+                "UserStatusLastWeek": "На прошлой неделе",
+                "UserStatusLastMonth": "В прошлом месяце",
+                "UserStatusLongTimeAgo": "Давно"
+            }
+            return status_map.get(status_type, "Неизвестно")
+        except Exception:
+            return "Неизвестно"
+
     async def safe_get_chat_members(self, client, chat_id, limit=None):
         """Безопасное получение участников чата"""
         members = []
@@ -215,7 +265,7 @@ class TelegramParserThread(QThread):
             if members is None or not self.is_running:
                 return
 
-            # Обрабатываем данные
+            # Обрабатываем данные с расширенными полями
             parsed_data = []
             for i, member in enumerate(members):
                 if not self.is_running:
@@ -223,19 +273,48 @@ class TelegramParserThread(QThread):
 
                 try:
                     user = member.user
-                    parsed_data.append({
+                    
+                    # Собираем все доступные данные в одном запросе
+                    user_data = {
                         'ID': user.id,
                         'Username': user.username or '',
                         'First Name': user.first_name or '',
-                        'Last Name': user.last_name or ''
-                    })
+                        'Last Name': user.last_name or '',
+                        'Phone': user.phone_number or '' if hasattr(user, 'phone_number') and user.phone_number else '',
+                        'Status': self.get_user_status(user),
+                        'Last Online': self.format_last_online(user),
+                        'Is Bot': 'Да' if user.is_bot else 'Нет',
+                        'Is Verified': 'Да' if user.is_verified else 'Нет',
+                        'Is Scam': 'Да' if user.is_scam else 'Нет',
+                        'Is Premium': 'Да' if user.is_premium else 'Нет'
+                    }
+                    
+                    parsed_data.append(user_data)
 
                     if (i + 1) % 50 == 0:
                         self.progress_signal.emit(f"🔄 Обработано: {i + 1}/{len(members)}")
                         self.progress_value.emit(i + 1)
 
                 except Exception as e:
-                    continue
+                    # В случае ошибки добавляем базовые данные
+                    try:
+                        user = member.user
+                        user_data = {
+                            'ID': user.id,
+                            'Username': user.username or '',
+                            'First Name': user.first_name or '',
+                            'Last Name': user.last_name or '',
+                            'Phone': '',
+                            'Status': 'Неизвестно',
+                            'Last Online': 'Неизвестно',
+                            'Is Bot': 'Неизвестно',
+                            'Is Verified': 'Неизвестно',
+                            'Is Scam': 'Неизвестно',
+                            'Is Premium': 'Неизвестно'
+                        }
+                        parsed_data.append(user_data)
+                    except:
+                        continue
 
             if self.is_running:
                 self.finished_signal.emit(chat.title, parsed_data)
@@ -283,8 +362,8 @@ class TelegramParserGUI(QMainWindow):
 
     def init_ui(self):
         """Инициализация интерфейса"""
-        self.setWindowTitle("Telegram Group Parser v2.1")
-        self.setGeometry(100, 100, 900, 700)
+        self.setWindowTitle("Telegram Group Parser v2.1 - Extended")
+        self.setGeometry(100, 100, 1200, 800)  # Увеличили ширину для большего количества колонок
 
         # Центральный виджет
         central_widget = QWidget()
@@ -342,6 +421,29 @@ class TelegramParserGUI(QMainWindow):
         parse_layout.addRow("", browse_btn)
 
         layout.addWidget(parse_group)
+
+        # Информация о собираемых данных
+        data_info_group = QGroupBox("📋 Собираемые данные")
+        data_info_layout = QVBoxLayout(data_info_group)
+        
+        data_info_text = QLabel(
+            "✅ Программа собирает следующие данные:\n"
+            "• ID пользователя\n"
+            "• Username (@никнейм)\n"
+            "• Имя и фамилия\n"
+            "• Номер телефона (если доступен)\n"
+            "• Статус онлайн\n"
+            "• Время последнего посещения\n"
+            "• Является ли ботом\n"
+            "• Верифицированный аккаунт\n"
+            "• Скам аккаунт\n"
+            "• Premium подписка\n\n"
+            "⚡ Все данные собираются в одном API запросе без дополнительных обращений к серверу."
+        )
+        data_info_text.setStyleSheet("color: #333; padding: 10px; font-size: 12px;")
+        data_info_layout.addWidget(data_info_text)
+        
+        layout.addWidget(data_info_group)
 
         # Группа управления сессией
         session_group = QGroupBox("🔐 Управление сессией")
@@ -596,7 +698,7 @@ class TelegramParserGUI(QMainWindow):
             return
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        default_name = f"telegram_members_{timestamp}.csv"
+        default_name = f"telegram_members_extended_{timestamp}.csv"
 
         filename, _ = QFileDialog.getSaveFileName(
             self, "Сохранить CSV",
@@ -702,6 +804,17 @@ def main():
         QTextEdit {
             border: 1px solid #ddd;
             border-radius: 4px;
+        }
+        QTableWidget {
+            gridline-color: #ddd;
+            background-color: white;
+        }
+        QTableWidget::item {
+            padding: 5px;
+        }
+        QTableWidget::item:selected {
+            background-color: #3498db;
+            color: white;
         }
     """)
 
