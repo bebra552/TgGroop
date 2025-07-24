@@ -270,7 +270,8 @@ class TelegramParserThread(QThread):
                         'Is Bot': 'Да' if user.is_bot else 'Нет',
                         'Is Verified': 'Да' if user.is_verified else 'Нет',
                         'Is Scam': 'Да' if user.is_scam else 'Нет',
-                        'Is Premium': 'Да' if user.is_premium else 'Нет'
+                        'Is Premium': 'Да' if user.is_premium else 'Нет',
+                        'Is Admin': 'Да' if getattr(member, 'status', None) in ('administrator', 'creator') else 'Нет'
                     }
                     
                     parsed_data.append(user_data)
@@ -294,7 +295,8 @@ class TelegramParserThread(QThread):
                             'Is Bot': 'Неизвестно',
                             'Is Verified': 'Неизвестно',
                             'Is Scam': 'Неизвестно',
-                            'Is Premium': 'Неизвестно'
+                            'Is Premium': 'Неизвестно',
+                            'Is Admin': 'Неизвестно'
                         }
                         parsed_data.append(user_data)
                     except:
