@@ -227,8 +227,7 @@ class TelegramParserThread(QThread):
                         'ID': user.id,
                         'Username': user.username or '',
                         'First Name': user.first_name or '',
-                        'Last Name': user.last_name or '',
-                        'Phone': getattr(user, 'phone_number', '') or ''
+                        'Last Name': user.last_name or ''
                     })
 
                     if (i + 1) % 50 == 0:
