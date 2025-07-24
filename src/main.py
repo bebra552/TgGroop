@@ -40,53 +40,61 @@ class TelegramParserThread(QThread):
 
     def format_last_online(self, user):
         """Форматирование времени последнего посещения"""
-        if not hasattr(user, 'status') or not user.status:
-            return "Неизвестно"
-        
         try:
-            if hasattr(user.status, 'date'):
-                # Пользователь был онлайн в определенное время
-                last_seen = user.status.date
-                if last_seen:
-                    return last_seen.strftime("%Y-%m-%d %H:%M:%S")
+            if hasattr(user, 'status') and user.status:
+                status_type = str(type(user.status).__name__)
+                
+                if "Online" in status_type:
+                    return "Онлайн"
+                elif "Offline" in status_type:
+                    if hasattr(user.status, 'was_online') and user.status.was_online:
+                        return user.status.was_online.strftime("%Y-%m-%d %H:%M:%S")
+                    return "Недавно"
+                elif "Recently" in status_type:
+                    return "Недавно"
+                elif "LastWeek" in status_type:
+                    return "На прошлой неделе"
+                elif "LastMonth" in status_type:
+                    return "В прошлом месяце"
+                elif "Empty" in status_type or "LongTimeAgo" in status_type:
+                    return "Давно"
+                else:
+                    return f"Неопределен ({status_type})"
             
-            # Определяем статус по типу
-            status_type = type(user.status).__name__
-            if status_type == "UserStatusOnline":
-                return "Онлайн"
-            elif status_type == "UserStatusOffline":
-                if hasattr(user.status, 'was_online'):
-                    return user.status.was_online.strftime("%Y-%m-%d %H:%M:%S")
-                return "Недавно"
-            elif status_type == "UserStatusRecently":
-                return "Недавно"
-            elif status_type == "UserStatusLastWeek":
-                return "На прошлой неделе"
-            elif status_type == "UserStatusLastMonth":
-                return "В прошлом месяце"
-            else:
-                return "Давно"
-        except Exception:
-            return "Неизвестно"
+            # Дополнительная проверка через last_online_date если доступно
+            if hasattr(user, 'last_online_date') and user.last_online_date:
+                return user.last_online_date.strftime("%Y-%m-%d %H:%M:%S")
+                
+            return "Скрыто"
+        except Exception as e:
+            return f"Ошибка: {str(e)[:20]}"
 
     def get_user_status(self, user):
         """Получение текстового статуса пользователя"""
-        if not hasattr(user, 'status') or not user.status:
-            return "Неизвестно"
-        
         try:
-            status_type = type(user.status).__name__
-            status_map = {
-                "UserStatusOnline": "Онлайн",
-                "UserStatusOffline": "Не в сети",
-                "UserStatusRecently": "Недавно",
-                "UserStatusLastWeek": "На прошлой неделе",
-                "UserStatusLastMonth": "В прошлом месяце",
-                "UserStatusLongTimeAgo": "Давно"
-            }
-            return status_map.get(status_type, "Неизвестно")
-        except Exception:
-            return "Неизвестно"
+            if hasattr(user, 'status') and user.status:
+                status_type = str(type(user.status).__name__)
+                
+                if "Online" in status_type:
+                    return "Онлайн"
+                elif "Offline" in status_type:
+                    return "Не в сети"
+                elif "Recently" in status_type:
+                    return "Недавно"
+                elif "LastWeek" in status_type:
+                    return "На прошлой неделе"
+                elif "LastMonth" in status_type:
+                    return "В прошлом месяце"
+                elif "Empty" in status_type:
+                    return "Не указан"
+                elif "LongTimeAgo" in status_type:
+                    return "Давно"
+                else:
+                    return f"Другой ({status_type})"
+            
+            return "Скрыто"
+        except Exception as e:
+            return f"Ошибка: {str(e)[:20]}"
 
     async def safe_get_chat_members(self, client, chat_id, limit=None):
         """Безопасное получение участников чата"""
@@ -437,8 +445,7 @@ class TelegramParserGUI(QMainWindow):
             "• Является ли ботом\n"
             "• Верифицированный аккаунт\n"
             "• Скам аккаунт\n"
-            "• Premium подписка\n\n"
-            "⚡ Все данные собираются в одном API запросе без дополнительных обращений к серверу."
+            "• Premium подписка"
         )
         data_info_text.setStyleSheet("color: #333; padding: 10px; font-size: 12px;")
         data_info_layout.addWidget(data_info_text)
