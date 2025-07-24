@@ -15,6 +15,7 @@ from PyQt6.QtCore import QThread, pyqtSignal, Qt, QTimer
 from PyQt6.QtGui import QFont, QIcon
 from pyrogram import Client
 from pyrogram.errors import FloodWait, UserPrivacyRestricted, ChatAdminRequired
+from pyrogram.enums import UserStatus
 
 
 class TelegramParserThread(QThread):
@@ -41,60 +42,55 @@ class TelegramParserThread(QThread):
     def format_last_online(self, user):
         """Форматирование времени последнего посещения"""
         try:
-            if hasattr(user, 'status') and user.status:
-                status_type = str(type(user.status).__name__)
-                
-                if "Online" in status_type:
-                    return "Онлайн"
-                elif "Offline" in status_type:
-                    if hasattr(user.status, 'was_online') and user.status.was_online:
-                        return user.status.was_online.strftime("%Y-%m-%d %H:%M:%S")
-                    return "Недавно"
-                elif "Recently" in status_type:
-                    return "Недавно"
-                elif "LastWeek" in status_type:
-                    return "На прошлой неделе"
-                elif "LastMonth" in status_type:
-                    return "В прошлом месяце"
-                elif "Empty" in status_type or "LongTimeAgo" in status_type:
-                    return "Давно"
-                else:
-                    return f"Неопределен ({status_type})"
+            if not hasattr(user, 'status') or not user.status:
+                return "Скрыто"
             
-            # Дополнительная проверка через last_online_date если доступно
-            if hasattr(user, 'last_online_date') and user.last_online_date:
-                return user.last_online_date.strftime("%Y-%m-%d %H:%M:%S")
+            # Используем enum для правильного определения типа статуса
+            if user.status == UserStatus.ONLINE:
+                return "Сейчас в сети"
+            elif user.status == UserStatus.OFFLINE:
+                # Пытаемся получить точное время последнего визита
+                if hasattr(user, 'last_online_date') and user.last_online_date:
+                    return user.last_online_date.strftime("%Y-%m-%d %H:%M:%S")
+                return "Не в сети"
+            elif user.status == UserStatus.RECENTLY:
+                return "Недавно"
+            elif user.status == UserStatus.LAST_WEEK:
+                return "На прошлой неделе"
+            elif user.status == UserStatus.LAST_MONTH:
+                return "В прошлом месяце"
+            elif user.status == UserStatus.LONG_TIME_AGO:
+                return "Давно не заходил"
+            else:
+                return "Неизвестно"
                 
-            return "Скрыто"
         except Exception as e:
-            return f"Ошибка: {str(e)[:20]}"
+            return "Ошибка получения"
 
     def get_user_status(self, user):
         """Получение текстового статуса пользователя"""
         try:
-            if hasattr(user, 'status') and user.status:
-                status_type = str(type(user.status).__name__)
-                
-                if "Online" in status_type:
-                    return "Онлайн"
-                elif "Offline" in status_type:
-                    return "Не в сети"
-                elif "Recently" in status_type:
-                    return "Недавно"
-                elif "LastWeek" in status_type:
-                    return "На прошлой неделе"
-                elif "LastMonth" in status_type:
-                    return "В прошлом месяце"
-                elif "Empty" in status_type:
-                    return "Не указан"
-                elif "LongTimeAgo" in status_type:
-                    return "Давно"
-                else:
-                    return f"Другой ({status_type})"
+            if not hasattr(user, 'status') or not user.status:
+                return "Скрыто"
             
-            return "Скрыто"
+            # Используем enum для правильного определения типа статуса
+            if user.status == UserStatus.ONLINE:
+                return "В сети"
+            elif user.status == UserStatus.OFFLINE:
+                return "Не в сети"
+            elif user.status == UserStatus.RECENTLY:
+                return "Недавно был в сети"
+            elif user.status == UserStatus.LAST_WEEK:
+                return "Был на прошлой неделе"
+            elif user.status == UserStatus.LAST_MONTH:
+                return "Был в прошлом месяце"
+            elif user.status == UserStatus.LONG_TIME_AGO:
+                return "Давно не заходил"
+            else:
+                return "Неизвестно"
+                
         except Exception as e:
-            return f"Ошибка: {str(e)[:20]}"
+            return "Ошибка получения"
 
     async def safe_get_chat_members(self, client, chat_id, limit=None):
         """Безопасное получение участников чата"""
