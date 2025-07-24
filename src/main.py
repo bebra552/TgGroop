@@ -43,34 +43,34 @@ class TelegramParserThread(QThread):
     def format_last_online(self, user):
         """Форматирование времени последнего посещения"""
         try:
+            if hasattr(user, 'last_online_date') and user.last_online_date:
+                return user.last_online_date.strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                return "Скрыто"
+        except Exception:
+            return "Скрыто"
+
+    def get_user_status(self, user):
+        """Получение текстового статуса пользователя"""
+        try:
             if not hasattr(user, 'status') or user.status is None:
                 return "Скрыто"
-            
-            # Проверяем значение enum статуса
             if user.status == UserStatus.ONLINE:
                 return "Онлайн"
             elif user.status == UserStatus.OFFLINE:
-                # Пытаемся получить точное время из last_online_date
-                if hasattr(user, 'last_online_date') and user.last_online_date:
-                    return user.last_online_date.strftime("%Y-%m-%d %H:%M:%S")
-                return "Не в сети"
+                return "Оффлайн"
             elif user.status == UserStatus.RECENTLY:
                 return "Недавно"
             elif user.status == UserStatus.LAST_WEEK:
-                return "На прошлой неделе"  
+                return "На прошлой неделе"
             elif user.status == UserStatus.LAST_MONTH:
                 return "В прошлом месяце"
             elif user.status == UserStatus.LONG_TIME_AGO:
                 return "Давно"
             else:
                 return "Скрыто"
-                
-        except Exception as e:
+        except Exception:
             return "Скрыто"
-
-    def get_user_status(self, user):
-        """Получение текстового статуса пользователя"""
-        return self.format_last_online(user)
 
     async def safe_get_chat_members(self, client, chat_id, limit=None):
         """Безопасное получение участников чата"""
