@@ -62,9 +62,9 @@ class TelegramParserThread(QThread):
             elif user.status == UserStatus.RECENTLY:
                 return "Недавно"
             elif user.status == UserStatus.LAST_WEEK:
-                return "На прошлой неделе"
+                return "Был на этой неделе"
             elif user.status == UserStatus.LAST_MONTH:
-                return "В прошлом месяце"
+                return "Был в этом месяце"
             elif user.status == UserStatus.LONG_TIME_AGO:
                 return "Давно"
             else:
@@ -664,7 +664,14 @@ class TelegramParserGUI(QMainWindow):
         if not data:
             return
 
+        # Проверяем, все ли значения Last Online == 'Скрыто'
         headers = list(data[0].keys())
+        if 'Last Online' in headers:
+            if all(item.get('Last Online', 'Скрыто') == 'Скрыто' for item in data):
+                headers.remove('Last Online')
+                for item in data:
+                    item.pop('Last Online', None)
+
         self.results_table.setColumnCount(len(headers))
         self.results_table.setRowCount(len(data))
         self.results_table.setHorizontalHeaderLabels(headers)
@@ -680,6 +687,15 @@ class TelegramParserGUI(QMainWindow):
         if not self.parsed_data:
             return
 
+        # Проверяем, все ли значения Last Online == 'Скрыто'
+        data = self.parsed_data.copy()
+        headers = list(data[0].keys())
+        if 'Last Online' in headers:
+            if all(item.get('Last Online', 'Скрыто') == 'Скрыто' for item in data):
+                headers.remove('Last Online')
+                for item in data:
+                    item.pop('Last Online', None)
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         default_name = f"telegram_members_extended_{timestamp}.csv"
 
@@ -692,10 +708,10 @@ class TelegramParserGUI(QMainWindow):
         if filename:
             try:
                 with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
-                    if self.parsed_data:
-                        writer = csv.DictWriter(csvfile, fieldnames=self.parsed_data[0].keys())
+                    if data:
+                        writer = csv.DictWriter(csvfile, fieldnames=headers)
                         writer.writeheader()
-                        writer.writerows(self.parsed_data)
+                        writer.writerows(data)
 
                 QMessageBox.information(self, "Успех", f"Файл сохранен: {filename}")
             except Exception as e:
