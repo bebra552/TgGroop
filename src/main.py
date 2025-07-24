@@ -18,6 +18,7 @@ from pyrogram.errors import FloodWait, UserPrivacyRestricted, ChatAdminRequired
 from pyrogram.enums import UserStatus
 
 
+
 class TelegramParserThread(QThread):
     """Поток для парсинга Telegram групп"""
     progress_signal = pyqtSignal(str)
@@ -42,26 +43,24 @@ class TelegramParserThread(QThread):
     def format_last_online(self, user):
         """Форматирование времени последнего посещения"""
         try:
-            if not user or not hasattr(user, 'status') or not user.status:
+            if not hasattr(user, 'status') or user.status is None:
                 return "Скрыто"
             
-            status = user.status
-            
-            # Используем правильные enum'ы из Pyrogram
-            if status == UserStatus.ONLINE:
+            # Проверяем значение enum статуса
+            if user.status == UserStatus.ONLINE:
                 return "Онлайн"
-            elif status == UserStatus.OFFLINE:
-                # Получаем точное время последнего посещения
+            elif user.status == UserStatus.OFFLINE:
+                # Пытаемся получить точное время из last_online_date
                 if hasattr(user, 'last_online_date') and user.last_online_date:
                     return user.last_online_date.strftime("%Y-%m-%d %H:%M:%S")
                 return "Не в сети"
-            elif status == UserStatus.RECENTLY:
+            elif user.status == UserStatus.RECENTLY:
                 return "Недавно"
-            elif status == UserStatus.LAST_WEEK:
+            elif user.status == UserStatus.LAST_WEEK:
                 return "На прошлой неделе"  
-            elif status == UserStatus.LAST_MONTH:
+            elif user.status == UserStatus.LAST_MONTH:
                 return "В прошлом месяце"
-            elif status == UserStatus.LONG_AGO:
+            elif user.status == UserStatus.LONG_TIME_AGO:
                 return "Давно"
             else:
                 return "Скрыто"
@@ -69,41 +68,9 @@ class TelegramParserThread(QThread):
         except Exception as e:
             return "Скрыто"
 
-    def get_user_status_text(self, user):
+    def get_user_status(self, user):
         """Получение текстового статуса пользователя"""
-        try:
-            if not user or not hasattr(user, 'status') or not user.status:
-                return "Неизвестно"
-            
-            status = user.status
-            
-            if status == UserStatus.ONLINE:
-                return "В сети"
-            elif status == UserStatus.OFFLINE:
-                return "Не в сети"
-            elif status == UserStatus.RECENTLY:
-                return "Недавно был в сети"
-            elif status == UserStatus.LAST_WEEK:
-                return "Был в сети на прошлой неделе"
-            elif status == UserStatus.LAST_MONTH:
-                return "Был в сети в прошлом месяце"
-            elif status == UserStatus.LONG_AGO:
-                return "Давно не был в сети"
-            else:
-                return "Статус скрыт"
-                
-        except Exception:
-            return "Неизвестно"
-
-    async def get_full_user_info(self, user):
-        """Получение полной информации о пользователе"""
-        try:
-            # Получаем расширенную информацию о пользователе
-            full_user = await self.client.get_users(user.id)
-            return full_user
-        except Exception:
-            # Если не удалось получить расширенную информацию, возвращаем исходного пользователя
-            return user
+        return self.format_last_online(user)
 
     async def safe_get_chat_members(self, client, chat_id, limit=None):
         """Безопасное получение участников чата"""
@@ -291,28 +258,19 @@ class TelegramParserThread(QThread):
                 try:
                     user = member.user
                     
-                    # Получаем полную информацию о пользователе для более точных данных
-                    try:
-                        full_user = await self.get_full_user_info(user)
-                        user = full_user
-                    except Exception:
-                        pass  # Используем базовую информацию
-                    
-                    # Собираем все доступные данные
+                    # Собираем все доступные данные в одном запросе
                     user_data = {
                         'ID': user.id,
                         'Username': user.username or '',
                         'First Name': user.first_name or '',
                         'Last Name': user.last_name or '',
-                        'Phone': getattr(user, 'phone_number', '') or '',
-                        'Status': self.get_user_status_text(user),
+                        'Phone': user.phone_number or '' if hasattr(user, 'phone_number') and user.phone_number else '',
+                        'Status': self.get_user_status(user),
                         'Last Online': self.format_last_online(user),
-                        'Is Bot': 'Да' if getattr(user, 'is_bot', False) else 'Нет',
-                        'Is Verified': 'Да' if getattr(user, 'is_verified', False) else 'Нет',
-                        'Is Scam': 'Да' if getattr(user, 'is_scam', False) else 'Нет',
-                        'Is Premium': 'Да' if getattr(user, 'is_premium', False) else 'Нет',
-                        'Language Code': getattr(user, 'language_code', '') or '',
-                        'Bio': getattr(user, 'bio', '') or ''
+                        'Is Bot': 'Да' if user.is_bot else 'Нет',
+                        'Is Verified': 'Да' if user.is_verified else 'Нет',
+                        'Is Scam': 'Да' if user.is_scam else 'Нет',
+                        'Is Premium': 'Да' if user.is_premium else 'Нет'
                     }
                     
                     parsed_data.append(user_data)
@@ -320,10 +278,6 @@ class TelegramParserThread(QThread):
                     if (i + 1) % 50 == 0:
                         self.progress_signal.emit(f"🔄 Обработано: {i + 1}/{len(members)}")
                         self.progress_value.emit(i + 1)
-
-                    # Небольшая задержка для избежания ограничений
-                    if (i + 1) % 10 == 0:
-                        await asyncio.sleep(0.2)
 
                 except Exception as e:
                     # В случае ошибки добавляем базовые данные
@@ -340,9 +294,7 @@ class TelegramParserThread(QThread):
                             'Is Bot': 'Неизвестно',
                             'Is Verified': 'Неизвестно',
                             'Is Scam': 'Неизвестно',
-                            'Is Premium': 'Неизвестно',
-                            'Language Code': '',
-                            'Bio': ''
+                            'Is Premium': 'Неизвестно'
                         }
                         parsed_data.append(user_data)
                     except:
@@ -394,8 +346,8 @@ class TelegramParserGUI(QMainWindow):
 
     def init_ui(self):
         """Инициализация интерфейса"""
-        self.setWindowTitle("Telegram Group Parser v2.2 - Fixed Status")
-        self.setGeometry(100, 100, 1400, 800)  # Увеличили ширину для большего количества колонок
+        self.setWindowTitle("Telegram Group Parser v2.1 - Extended")
+        self.setGeometry(100, 100, 1200, 800)  # Увеличили ширину для большего количества колонок
 
         # Центральный виджет
         central_widget = QWidget()
@@ -464,14 +416,12 @@ class TelegramParserGUI(QMainWindow):
             "• Username (@никнейм)\n"
             "• Имя и фамилия\n"
             "• Номер телефона (если доступен)\n"
-            "• Текущий статус активности\n"
-            "• Время последнего посещения (если доступно)\n"
+            "• Статус онлайн\n"
+            "• Время последнего посещения\n"
             "• Является ли ботом\n"
             "• Верифицированный аккаунт\n"
             "• Скам аккаунт\n"
-            "• Premium подписка\n"
-            "• Код языка\n"
-            "• Биография (если доступна)"
+            "• Premium подписка"
         )
         data_info_text.setStyleSheet("color: #333; padding: 10px; font-size: 12px;")
         data_info_layout.addWidget(data_info_text)
