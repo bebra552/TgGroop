@@ -15,6 +15,7 @@ from PyQt6.QtCore import QThread, pyqtSignal, Qt, QTimer
 from PyQt6.QtGui import QFont, QIcon
 from pyrogram import Client
 from pyrogram.errors import FloodWait, UserPrivacyRestricted, ChatAdminRequired
+from pyrogram.enums import UserStatus
 
 
 
@@ -45,40 +46,31 @@ class TelegramParserThread(QThread):
             if not hasattr(user, 'status') or user.status is None:
                 return "Скрыто"
             
-            # Получаем строковое представление статуса для отладки
-            status_type = str(type(user.status).__name__)
-            
-            # Проверяем разные варианты названий классов статусов
-            if status_type == "UserStatusOnline":
+            # Проверяем значение enum статуса
+            if user.status == UserStatus.ONLINE:
                 return "Онлайн"
-            elif status_type == "UserStatusOffline":
-                if hasattr(user.status, 'was_online') and user.status.was_online:
-                    return user.status.was_online.strftime("%Y-%m-%d %H:%M:%S")
+            elif user.status == UserStatus.OFFLINE:
+                # Пытаемся получить точное время из last_online_date
+                if hasattr(user, 'last_online_date') and user.last_online_date:
+                    return user.last_online_date.strftime("%Y-%m-%d %H:%M:%S")
                 return "Не в сети"
-            elif status_type == "UserStatusRecently":
+            elif user.status == UserStatus.RECENTLY:
                 return "Недавно"
-            elif status_type == "UserStatusLastWeek":
+            elif user.status == UserStatus.LAST_WEEK:
                 return "На прошлой неделе"  
-            elif status_type == "UserStatusLastMonth":
+            elif user.status == UserStatus.LAST_MONTH:
                 return "В прошлом месяце"
-            elif status_type == "UserStatusLongTimeAgo":
+            elif user.status == UserStatus.LONG_TIME_AGO:
                 return "Давно"
-            elif status_type == "UserStatusEmpty":
-                return "Скрыто"
             else:
-                # Для отладки - показываем что за тип статуса приходит
-                return f"DEBUG: {status_type}"
+                return "Скрыто"
                 
         except Exception as e:
-            return f"Ошибка: {str(e)[:20]}"
+            return "Скрыто"
 
     def get_user_status(self, user):
         """Получение текстового статуса пользователя"""
-        # Возвращаем упрощенную версию статуса
-        status = self.format_last_online(user)
-        if "DEBUG:" in status:
-            return "Неизвестно"
-        return status
+        return self.format_last_online(user)
 
     async def safe_get_chat_members(self, client, chat_id, limit=None):
         """Безопасное получение участников чата"""
