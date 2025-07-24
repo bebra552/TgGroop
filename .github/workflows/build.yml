@@ -7,7 +7,7 @@ on:
 
 jobs:
  build-macos:
-   runs-on: macos-latest
+   runs-on: macos-12
 
    steps:
    - name: Checkout code
@@ -16,7 +16,7 @@ jobs:
    - name: Set up Python
      uses: actions/setup-python@v5
      with:
-       python-version: '3.11'
+       python-version: '3.10'
 
    - name: Install system dependencies
      run: |
@@ -26,16 +26,25 @@ jobs:
      run: |
        python -m pip install --upgrade pip
        pip install --upgrade setuptools wheel
-       pip install pyinstaller
+       pip install pyinstaller==5.13.2
 
-   - name: Install Python dependencies from requirements.txt
+   - name: Install Python dependencies
      run: |
-       pip install --no-cache-dir -r requirements.txt
+       pip install PyQt5==5.15.10
+       pip install pyrogram==2.0.106
+       pip install TgCrypto==1.2.5
+
+   - name: Update main.py to use PyQt5
+     run: |
+       sed -i '' 's/from PyQt6/from PyQt5/g' src/main.py
+       sed -i '' 's/PyQt6/PyQt5/g' src/main.py
 
    - name: Verify installations
      run: |
        python -c "import pyrogram; print('Pyrogram installed successfully')"
+       python -c "from pyrogram.enums import UserStatus; print('UserStatus enum imported successfully')"
        python -c "import asyncio; print('Asyncio available')"
+       python -c "from PyQt5.QtWidgets import QApplication; print('PyQt5 installed successfully')"
 
    - name: Build application with PyInstaller
      run: |
@@ -47,15 +56,18 @@ jobs:
          --hidden-import pyrogram \
          --hidden-import pyrogram.client \
          --hidden-import pyrogram.errors \
-         --hidden-import PyQt6 \
-         --hidden-import PyQt6.QtCore \
-         --hidden-import PyQt6.QtGui \
-         --hidden-import PyQt6.QtWidgets \
+         --hidden-import pyrogram.enums \
+         --hidden-import pyrogram.types \
+         --hidden-import PyQt5 \
+         --hidden-import PyQt5.QtCore \
+         --hidden-import PyQt5.QtGui \
+         --hidden-import PyQt5.QtWidgets \
          --hidden-import asyncio \
          --hidden-import csv \
          --hidden-import logging \
          --hidden-import pathlib \
          --hidden-import io \
+         --hidden-import datetime \
          --exclude-module tkinter \
          --exclude-module matplotlib \
          --exclude-module numpy.tests \
@@ -83,9 +95,9 @@ jobs:
          <key>CFBundleName</key>
          <string>TgGroop</string>
          <key>CFBundleVersion</key>
-         <string>2.1</string>
+         <string>2.2</string>
          <key>CFBundleShortVersionString</key>
-         <string>2.1</string>
+         <string>2.2</string>
          <key>CFBundleInfoDictionaryVersion</key>
          <string>6.0</string>
          <key>CFBundlePackageType</key>
@@ -128,7 +140,7 @@ jobs:
        retention-days: 7
 
  build-windows:
-   runs-on: windows-latest
+   runs-on: windows-2019
 
    steps:
    - name: Checkout code
@@ -161,8 +173,9 @@ jobs:
 
    - name: Verify installations
      run: |
-       python -c "from PyQt5 import QtCore; print('PyQt5 version:', QtCore.QT_VERSION_STR)"
        python -c "import pyrogram; print('Pyrogram installed successfully')"
+       python -c "from pyrogram.enums import UserStatus; print('UserStatus enum imported successfully')"
+       python -c "from PyQt5.QtWidgets import QApplication; print('PyQt5 installed successfully')"
 
    - name: Build application with PyInstaller
      run: |
@@ -174,6 +187,8 @@ jobs:
          --hidden-import pyrogram ^
          --hidden-import pyrogram.client ^
          --hidden-import pyrogram.errors ^
+         --hidden-import pyrogram.enums ^
+         --hidden-import pyrogram.types ^
          --hidden-import PyQt5 ^
          --hidden-import PyQt5.QtCore ^
          --hidden-import PyQt5.QtGui ^
@@ -183,6 +198,7 @@ jobs:
          --hidden-import logging ^
          --hidden-import pathlib ^
          --hidden-import io ^
+         --hidden-import datetime ^
          --exclude-module tkinter ^
          --exclude-module matplotlib ^
          --noconfirm ^
