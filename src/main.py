@@ -271,7 +271,13 @@ class TelegramParserThread(QThread):
                         'Is Verified': 'Да' if user.is_verified else 'Нет',
                         'Is Scam': 'Да' if user.is_scam else 'Нет',
                         'Is Premium': 'Да' if user.is_premium else 'Нет',
-                        'Is Admin': 'Да' if getattr(member, 'status', None) in ('administrator', 'creator') else 'Нет'
+                        'Is Admin': 'Да' if getattr(member, 'status', None) in ('administrator', 'creator') else 'Нет',
+                        # New fields
+                        'Language': user.language_code or '',
+                        'Has Avatar': 'Да' if getattr(user, 'photo', None) else 'Нет',
+                        'Chat Member Status': getattr(member, 'status', ''),
+                        'Joined Date': member.joined_date.strftime("%Y-%m-%d %H:%M:%S") if getattr(member, 'joined_date', None) else '',
+                        'Custom Title': getattr(member, 'custom_title', '') or ''
                     }
                     
                     parsed_data.append(user_data)
@@ -296,7 +302,13 @@ class TelegramParserThread(QThread):
                             'Is Verified': 'Неизвестно',
                             'Is Scam': 'Неизвестно',
                             'Is Premium': 'Неизвестно',
-                            'Is Admin': 'Неизвестно'
+                            'Is Admin': 'Неизвестно',
+                            # Added fallback keys for new fields
+                            'Language': '',
+                            'Has Avatar': 'Неизвестно',
+                            'Chat Member Status': 'Неизвестно',
+                            'Joined Date': '',
+                            'Custom Title': ''
                         }
                         parsed_data.append(user_data)
                     except:
