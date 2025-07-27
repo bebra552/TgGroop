@@ -599,29 +599,60 @@ class ReactionParserThread(TelegramParserThread):
                 self.error_signal.emit("ℹ️ У поста нет реакций")
                 return
 
-            # Получаем все реакции единым запросом
             parsed = []
             processed = 0
-            async for reactor in self.client.get_message_reactions(chat.id, msg_id, limit=self.max_members):
-                if not self.is_running:
-                    break
-                emoji = getattr(reactor.reaction, 'emoticon', '🧩')
-                usr = reactor
-                user_data = {
-                    'Emoji': emoji,
-                    'User ID': usr.id,
-                    'Username': usr.username or '',
-                    'First Name': usr.first_name or '',
-                    'Last Name': usr.last_name or ''
-                }
-                parsed.append(user_data)
-                processed += 1
-                if processed % 50 == 0:
-                    self.progress_signal.emit(f"🔄 Собрано реакций: {processed}/{self.max_members}")
-                    self.progress_value.emit(processed)
-                if processed >= self.max_members:
-                    break
- 
+
+            if hasattr(self.client, "get_message_reactions"):
+                # Новый API Pyrogram ≥2.0.104
+                async for reactor in self.client.get_message_reactions(chat.id, msg_id, limit=self.max_members):
+                    if not self.is_running:
+                        break
+                    emoji = getattr(reactor.reaction, 'emoticon', '🧩')
+                    usr = reactor
+                    user_data = {
+                        'Emoji': emoji,
+                        'User ID': usr.id,
+                        'Username': usr.username or '',
+                        'First Name': usr.first_name or '',
+                        'Last Name': usr.last_name or ''
+                    }
+                    parsed.append(user_data)
+                    processed += 1
+                    if processed % 50 == 0:
+                        self.progress_signal.emit(f"🔄 Собрано реакций: {processed}/{self.max_members}")
+                        self.progress_value.emit(processed)
+                    if processed >= self.max_members:
+                        break
+            else:
+                # Фоллбек: используем message.reactions, если доступно
+                if not hasattr(message.reactions, "results"):
+                    self.error_signal.emit("ℹ️ Клиент Pyrogram не поддерживает получение списков реагировавших")
+                    return
+                for rc in message.reactions.results:
+                    if not self.is_running or processed >= self.max_members:
+                        break
+                    emoji = rc.reaction.emoticon if hasattr(rc.reaction, 'emoticon') else '🧩'
+                    try:
+                        async for usr in self.client.get_message_reactions(chat.id, msg_id, rc.reaction, limit=self.max_members):
+                            if not self.is_running or processed >= self.max_members:
+                                break
+                            user_data = {
+                                'Emoji': emoji,
+                                'User ID': usr.id,
+                                'Username': usr.username or '',
+                                'First Name': usr.first_name or '',
+                                'Last Name': usr.last_name or ''
+                            }
+                            parsed.append(user_data)
+                            processed += 1
+                            if processed % 50 == 0:
+                                self.progress_signal.emit(f"🔄 Собрано реакций: {processed}/{self.max_members}")
+                                self.progress_value.emit(processed)
+                            if processed >= self.max_members:
+                                break
+                    except Exception as e:
+                        self.progress_signal.emit(f"⚠️ Ошибка реакции {emoji}: {e}")
+
             self.finished_signal.emit(f"Реакции поста #{msg_id}", parsed)
         except Exception as e:
             if self.is_running:
