@@ -599,12 +599,24 @@ class ReactionParserThread(TelegramParserThread):
                 self.error_signal.emit("ℹ️ У поста нет реакций")
                 return
 
+            # Унифицируем список ReactionCount объектов
+            if hasattr(message.reactions, "results"):
+                reaction_list = message.reactions.results
+            elif isinstance(message.reactions, list):
+                reaction_list = message.reactions
+            else:
+                reaction_list = []
+
+            if not reaction_list:
+                self.error_signal.emit("ℹ️ Формат реакций не поддерживается текущей версией Pyrogram")
+                return
+
             parsed = []
-            total_count = sum(rc.count for rc in message.reactions.results)
+            total_count = sum(rc.count for rc in reaction_list)
             self.progress_bar_max = min(total_count, self.max_members)
             processed = 0
-            for rc in message.reactions.results:
-                if not self.is_running:
+            for rc in reaction_list:
+                if not self.is_running or processed >= self.max_members:
                     break
                 emoji = rc.reaction.emoticon if hasattr(rc.reaction, 'emoticon') else '🧩'
                 try:
