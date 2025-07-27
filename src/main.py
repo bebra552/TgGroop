@@ -628,30 +628,15 @@ class ReactionParserThread(TelegramParserThread):
                 if not hasattr(message.reactions, "results"):
                     self.error_signal.emit("ℹ️ Клиент Pyrogram не поддерживает получение списков реагировавших")
                     return
+                # Выводим агрегированную информацию без списка пользователей
                 for rc in message.reactions.results:
-                    if not self.is_running or processed >= self.max_members:
-                        break
-                    emoji = rc.reaction.emoticon if hasattr(rc.reaction, 'emoticon') else '🧩'
-                    try:
-                        async for usr in self.client.get_message_reactions(chat.id, msg_id, rc.reaction, limit=self.max_members):
-                            if not self.is_running or processed >= self.max_members:
-                                break
-                            user_data = {
-                                'Emoji': emoji,
-                                'User ID': usr.id,
-                                'Username': usr.username or '',
-                                'First Name': usr.first_name or '',
-                                'Last Name': usr.last_name or ''
-                            }
-                            parsed.append(user_data)
-                            processed += 1
-                            if processed % 50 == 0:
-                                self.progress_signal.emit(f"🔄 Собрано реакций: {processed}/{self.max_members}")
-                                self.progress_value.emit(processed)
-                            if processed >= self.max_members:
-                                break
-                    except Exception as e:
-                        self.progress_signal.emit(f"⚠️ Ошибка реакции {emoji}: {e}")
+                    parsed.append({
+                        'Emoji': rc.reaction.emoticon if hasattr(rc.reaction, 'emoticon') else '🧩',
+                        'Count': rc.count,
+                        'Recent User IDs': ','.join(str(r.peer_id.user_id) for r in (message.reactions.recent_reactions or []) if getattr(r.reaction, 'emoticon', None) == getattr(rc.reaction, 'emoticon', None))
+                    })
+                self.finished_signal.emit(f"Реакции поста #{msg_id}", parsed)
+                return
 
             self.finished_signal.emit(f"Реакции поста #{msg_id}", parsed)
         except Exception as e:
