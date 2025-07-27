@@ -548,6 +548,101 @@ class MessageParserThread(TelegramParserThread):
                 self.error_signal.emit(f"❌ Ошибка выполнения: {str(e)}")
 
 
+class ReactionParserThread(TelegramParserThread):
+    """Парсинг пользователей по реакциям к конкретному посту"""
+
+    def __init__(self, api_id, api_hash, post_link, max_users=1000, session_name=None):
+        super().__init__(api_id, api_hash, post_link, max_users, session_name)
+
+    async def parse_reactions(self):
+        old_stdin = sys.stdin
+        try:
+            if not self.is_running:
+                return
+            self.progress_signal.emit("🔄 Инициализация клиента...")
+            sys.stdin = StringIO("")
+            self.client = Client(
+                self.session_name,
+                api_id=int(self.api_id),
+                api_hash=self.api_hash,
+                in_memory=False,
+                no_updates=True
+            )
+            await self.client.connect()
+            if not await self.ensure_auth():
+                return
+
+            link = self.chat_link.strip().replace("https://t.me/", "").replace("t.me/", "")
+            parts = link.split("/")
+            if len(parts) < 2:
+                self.error_signal.emit("❌ Неверная ссылка на пост")
+                return
+            channel_part = parts[0]
+            if channel_part == 'c' and len(parts) >= 3:
+                channel_id = int(parts[1])
+                msg_id = int(parts[2].split("?")[0])
+                chat = await self.client.get_chat(channel_id)
+            else:
+                chat = await self.client.get_chat(channel_part)
+                msg_id = int(parts[1].split("?")[0])
+
+            # Пытаемся присоединиться (игнорируем ошибку, если уже внутри)
+            try:
+                await self.client.join_chat(chat.id)
+            except Exception:
+                pass
+
+            self.progress_signal.emit(f"📄 Канал/чат: {chat.title} | Пост #{msg_id}")
+
+            message = await self.client.get_messages(chat.id, msg_id)
+            if not message or not message.reactions:
+                self.error_signal.emit("ℹ️ У поста нет реакций")
+                return
+
+            parsed = []
+            total_count = sum(rc.count for rc in message.reactions.results)
+            self.progress_bar_max = min(total_count, self.max_members)
+            processed = 0
+            for rc in message.reactions.results:
+                if not self.is_running:
+                    break
+                emoji = rc.reaction.emoticon if hasattr(rc.reaction, 'emoticon') else '🧩'
+                try:
+                    async for usr in self.client.get_message_reactions(chat.id, msg_id, rc.reaction, limit=self.max_members):
+                        if not self.is_running or processed >= self.max_members:
+                            break
+                        user_data = {
+                            'Emoji': emoji,
+                            'User ID': usr.id,
+                            'Username': usr.username or '',
+                            'First Name': usr.first_name or '',
+                            'Last Name': usr.last_name or ''
+                        }
+                        parsed.append(user_data)
+                        processed += 1
+                        if processed % 50 == 0:
+                            self.progress_signal.emit(f"🔄 Собрано реакций: {processed}/{self.max_members}")
+                            self.progress_value.emit(processed)
+                        if processed >= self.max_members:
+                            break
+                except Exception as e:
+                    self.progress_signal.emit(f"⚠️ Не удалось получить реакцию {emoji}: {e}")
+            self.finished_signal.emit(f"Реакции поста #{msg_id}", parsed)
+        except Exception as e:
+            if self.is_running:
+                self.error_signal.emit(f"❌ Критическая ошибка: {str(e)}")
+        finally:
+            sys.stdin = old_stdin
+            await self.cleanup()
+
+    def run(self):
+        try:
+            asyncio.run(self.parse_reactions())
+        except Exception as e:
+            if self.is_running:
+                self.error_signal.emit(f"❌ Ошибка выполнения: {str(e)}")
+
+
 class TelegramParserGUI(QMainWindow):
     """Главное окно приложения"""
 
@@ -637,7 +732,9 @@ class TelegramParserGUI(QMainWindow):
             "• Верифицированный аккаунт\n"
             "• Скам аккаунт\n"
             "• Premium подписка\n"
-            "\nКомментарий-режим: ссылка вида https://t.me/channel/12345 – будет собран список комментариев."
+            "• Режим 'Сообщения' – последние N сообщений\n"
+            "• Режим 'Комментарии' – комментарии к посту\n"
+            "• Режим 'Реакции' – пользователи, поставившие реакции к посту"
             )
         data_info_text.setStyleSheet("color: #333; padding: 10px; font-size: 12px;")
         data_info_layout.addWidget(data_info_text)
@@ -701,7 +798,7 @@ class TelegramParserGUI(QMainWindow):
         mode_layout = QHBoxLayout()
         mode_label = QLabel("🛠️ Режим:")
         self.mode_combo = QComboBox()
-        self.mode_combo.addItems(["Участники", "Комментарии", "Сообщения"])
+        self.mode_combo.addItems(["Участники", "Комментарии", "Сообщения", "Реакции"])
         mode_layout.addWidget(mode_label)
         mode_layout.addWidget(self.mode_combo)
         mode_layout.addStretch()
@@ -843,6 +940,18 @@ class TelegramParserGUI(QMainWindow):
             )
         elif selected_mode == "Сообщения":
             self.parser_thread = MessageParserThread(
+                self.api_id_input.text(),
+                self.api_hash_input.text(),
+                link,
+                max_members,
+                self.session_name
+            )
+        elif selected_mode == "Реакции":
+            if not is_post_link:
+                QMessageBox.warning(self, "Ошибка", "Выбран режим 'Реакции', но ссылка не является ссылкой на пост.")
+                self.reset_ui()
+                return
+            self.parser_thread = ReactionParserThread(
                 self.api_id_input.text(),
                 self.api_hash_input.text(),
                 link,
