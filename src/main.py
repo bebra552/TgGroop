@@ -16,6 +16,7 @@ from PyQt6.QtGui import QFont, QIcon
 from pyrogram import Client
 from pyrogram.errors import FloodWait, UserPrivacyRestricted, ChatAdminRequired
 from pyrogram.enums import UserStatus
+import re
 
 
 
@@ -347,6 +348,108 @@ class TelegramParserThread(QThread):
                 self.error_signal.emit(f"❌ Ошибка выполнения: {str(e)}")
 
 
+class CommentParserThread(TelegramParserThread):
+    """Поток для парсинга комментариев к конкретному посту канала"""
+
+    def __init__(self, api_id, api_hash, post_link, max_comments=1000, session_name=None):
+        super().__init__(api_id, api_hash, post_link, max_comments, session_name)
+
+    async def parse_post(self):
+        old_stdin = sys.stdin
+        try:
+            if not self.is_running:
+                return
+
+            self.progress_signal.emit("🔄 Инициализация клиента...")
+            sys.stdin = StringIO("")
+
+            self.client = Client(
+                self.session_name,
+                api_id=int(self.api_id),
+                api_hash=self.api_hash,
+                in_memory=False,
+                no_updates=True
+            )
+
+            self.progress_signal.emit("🔐 Подключение к Telegram...")
+            await self.client.connect()
+
+            if not await self.ensure_auth():
+                return
+
+            link = self.chat_link.strip()
+            # Очистка префиксов
+            link = link.replace("https://t.me/", "").replace("t.me/", "")
+            parts = link.split("/")
+            if len(parts) < 2:
+                raise Exception("Некорректная ссылка на пост")
+
+            channel_part = parts[0]
+            # Обработка ссылок вида t.me/c/12345678/1234
+            if channel_part == 'c':
+                if len(parts) < 3:
+                    raise Exception("Некорректная ссылка на пост")
+                channel_id = int(parts[1])  # внутренний id
+                message_id = int(parts[2].split("?")[0])
+                chat = await self.client.get_chat(channel_id)
+            else:
+                channel_username = channel_part
+                message_id = int(parts[1].split("?")[0])
+                chat = await self.client.get_chat(channel_username)
+
+            self.progress_signal.emit(f"📄 Канал: {chat.title} | Пост #{message_id}")
+            self.progress_signal.emit("💬 Получаю комментарии...")
+
+            comments = []
+            try:
+                async for reply in self.client.get_discussion_replies(chat.id, message_id, limit=self.max_members):
+                    if not self.is_running:
+                        break
+                    comments.append(reply)
+                    if len(comments) % 50 == 0:
+                        self.progress_signal.emit(f"🔄 Получено комментариев: {len(comments)}")
+                        self.progress_value.emit(min(len(comments), self.max_members))
+            except FloodWait as e:
+                self.progress_signal.emit(f"⏳ FloodWait: {e.value} сек")
+                await asyncio.sleep(e.value)
+            except Exception as e:
+                self.error_signal.emit(f"❌ Ошибка получения комментариев: {str(e)}")
+                return
+
+            parsed = []
+            for reply in comments:
+                try:
+                    user = reply.from_user or reply.sender_chat
+                    user_data = {
+                        'Comment ID': reply.id,
+                        'Author ID': user.id if user else '',
+                        'Username': getattr(user, 'username', '') or '',
+                        'First Name': getattr(user, 'first_name', '') or '',
+                        'Last Name': getattr(user, 'last_name', '') or '',
+                        'Text': reply.text or '',
+                        'Date': reply.date.strftime("%Y-%m-%d %H:%M:%S"),
+                    }
+                    parsed.append(user_data)
+                except Exception:
+                    continue
+
+            if self.is_running:
+                self.finished_signal.emit(f"Комментарии к посту #{message_id}", parsed)
+        except Exception as e:
+            if self.is_running:
+                self.error_signal.emit(f"❌ Критическая ошибка: {str(e)}")
+        finally:
+            sys.stdin = old_stdin
+            await self.cleanup()
+
+    def run(self):
+        try:
+            asyncio.run(self.parse_post())
+        except Exception as e:
+            if self.is_running:
+                self.error_signal.emit(f"❌ Ошибка выполнения: {str(e)}")
+
+
 class TelegramParserGUI(QMainWindow):
     """Главное окно приложения"""
 
@@ -435,8 +538,9 @@ class TelegramParserGUI(QMainWindow):
             "• Является ли ботом\n"
             "• Верифицированный аккаунт\n"
             "• Скам аккаунт\n"
-            "• Premium подписка"
-        )
+            "• Premium подписка\n"
+            "\nКомментарий-режим: ссылка вида https://t.me/channel/12345 – будет собран список комментариев."
+            )
         data_info_text.setStyleSheet("color: #333; padding: 10px; font-size: 12px;")
         data_info_layout.addWidget(data_info_text)
         
@@ -610,13 +714,26 @@ class TelegramParserGUI(QMainWindow):
         self.tabs.setCurrentIndex(1)  # Переключаем на таб парсинга
 
         # Запуск потока
-        self.parser_thread = TelegramParserThread(
-            self.api_id_input.text(),
-            self.api_hash_input.text(),
-            self.chat_link_input.text(),
-            max_members,
-            self.session_name
-        )
+        # Определяем, ссылка на пост или на группу
+        link = self.chat_link_input.text().strip()
+        is_post_link = re.search(r"/\d+(?:\?.*)?$", link) is not None
+
+        if is_post_link:
+            self.parser_thread = CommentParserThread(
+                self.api_id_input.text(),
+                self.api_hash_input.text(),
+                link,
+                max_members,
+                self.session_name
+            )
+        else:
+            self.parser_thread = TelegramParserThread(
+                self.api_id_input.text(),
+                self.api_hash_input.text(),
+                link,
+                max_members,
+                self.session_name
+            )
 
         self.parser_thread.progress_signal.connect(self.update_status)
         self.parser_thread.progress_value.connect(self.progress_bar.setValue)
