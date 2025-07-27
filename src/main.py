@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout
                              QWidget, QPushButton, QLineEdit, QTextEdit, QLabel,
                              QProgressBar, QFileDialog, QGroupBox, QFormLayout,
                              QMessageBox, QTabWidget, QTableWidget, QTableWidgetItem,
-                             QDialog, QDialogButtonBox, QInputDialog)
+                             QDialog, QDialogButtonBox, QInputDialog, QComboBox)
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QTimer
 from PyQt6.QtGui import QFont, QIcon
 from pyrogram import Client
@@ -450,6 +450,104 @@ class CommentParserThread(TelegramParserThread):
                 self.error_signal.emit(f"❌ Ошибка выполнения: {str(e)}")
 
 
+class MessageParserThread(TelegramParserThread):
+    """Поток для получения последних сообщений из чата/канала"""
+
+    def __init__(self, api_id, api_hash, chat_link, max_messages=500, session_name=None):
+        super().__init__(api_id, api_hash, chat_link, max_messages, session_name)
+
+    async def parse_messages(self):
+        old_stdin = sys.stdin
+        try:
+            if not self.is_running:
+                return
+
+            self.progress_signal.emit("🔄 Инициализация клиента...")
+            sys.stdin = StringIO("")
+
+            self.client = Client(
+                self.session_name,
+                api_id=int(self.api_id),
+                api_hash=self.api_hash,
+                in_memory=False,
+                no_updates=True
+            )
+
+            self.progress_signal.emit("🔐 Подключение к Telegram...")
+            await self.client.connect()
+
+            if not await self.ensure_auth():
+                return
+
+            chat_link = self.chat_link.strip()
+            if chat_link.startswith("https://t.me/"):
+                chat_username = chat_link.replace("https://t.me/", "")
+            elif chat_link.startswith("t.me/"):
+                chat_username = chat_link.replace("t.me/", "")
+            elif chat_link.startswith("@"):
+                chat_username = chat_link[1:]
+            else:
+                chat_username = chat_link
+
+            if "/" in chat_username:
+                chat_username = chat_username.split("/")[0]
+            if "?" in chat_username:
+                chat_username = chat_username.split("?")[0]
+
+            chat = await self.client.get_chat(chat_username)
+            self.progress_signal.emit(f"💬 Чат: {chat.title}")
+            self.progress_signal.emit("📥 Получаю сообщения...")
+
+            messages = []
+            try:
+                async for msg in self.client.get_chat_history(chat.id, limit=self.max_members):
+                    if not self.is_running:
+                        break
+                    messages.append(msg)
+                    if len(messages) % 50 == 0:
+                        self.progress_signal.emit(f"🔄 Получено сообщений: {len(messages)}")
+                        self.progress_value.emit(len(messages))
+            except FloodWait as e:
+                self.progress_signal.emit(f"⏳ FloodWait: {e.value} сек")
+                await asyncio.sleep(e.value)
+            except Exception as e:
+                self.error_signal.emit(f"❌ Ошибка получения сообщений: {str(e)}")
+                return
+
+            parsed_data = []
+            for m in messages:
+                try:
+                    user = m.from_user or m.sender_chat
+                    parsed_data.append({
+                        'Message ID': m.id,
+                        'Author ID': user.id if user else '',
+                        'Username': getattr(user, 'username', '') or '',
+                        'First Name': getattr(user, 'first_name', '') or '',
+                        'Last Name': getattr(user, 'last_name', '') or '',
+                        'Date': m.date.strftime("%Y-%m-%d %H:%M:%S"),
+                        'Text': (m.text or m.caption or '')[:4096],
+                        'Media Type': m.media.value if m.media else ''
+                    })
+                except Exception:
+                    continue
+
+            if self.is_running:
+                self.finished_signal.emit(f"Сообщения чата {chat.title}", parsed_data)
+        except Exception as e:
+            if self.is_running:
+                self.error_signal.emit(f"❌ Критическая ошибка: {str(e)}")
+        finally:
+            sys.stdin = old_stdin
+            await self.cleanup()
+
+    def run(self):
+        try:
+            asyncio.run(self.parse_messages())
+        except Exception as e:
+            if self.is_running:
+                self.error_signal.emit(f"❌ Ошибка выполнения: {str(e)}")
+
+
 class TelegramParserGUI(QMainWindow):
     """Главное окно приложения"""
 
@@ -599,6 +697,16 @@ class TelegramParserGUI(QMainWindow):
         examples_label.setStyleSheet("color: #666; font-size: 12px; padding: 5px;")
         input_layout.addWidget(examples_label)
 
+        # Режим парсинга
+        mode_layout = QHBoxLayout()
+        mode_label = QLabel("🛠️ Режим:")
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItems(["Участники", "Комментарии", "Сообщения"])
+        mode_layout.addWidget(mode_label)
+        mode_layout.addWidget(self.mode_combo)
+        mode_layout.addStretch()
+        input_layout.addLayout(mode_layout)
+
         # Кнопки
         button_layout = QHBoxLayout()
 
@@ -713,12 +821,19 @@ class TelegramParserGUI(QMainWindow):
         self.status_text.clear()
         self.tabs.setCurrentIndex(1)  # Переключаем на таб парсинга
 
-        # Запуск потока
-        # Определяем, ссылка на пост или на группу
+        # Определяем режим парсинга
+        selected_mode = self.mode_combo.currentText()
         link = self.chat_link_input.text().strip()
         is_post_link = re.search(r"/\d+(?:\?.*)?$", link) is not None
 
-        if is_post_link:
+        if selected_mode == "Комментарии":
+            if not is_post_link:
+                QMessageBox.warning(self, "Ошибка", "Выбран режим 'Комментарии', но ссылка не является ссылкой на пост.")
+                self.start_btn.setEnabled(True)
+                self.stop_btn.setEnabled(False)
+                self.progress_bar.setVisible(False)
+                self.progress_bar.setValue(0)
+                return
             self.parser_thread = CommentParserThread(
                 self.api_id_input.text(),
                 self.api_hash_input.text(),
@@ -726,7 +841,15 @@ class TelegramParserGUI(QMainWindow):
                 max_members,
                 self.session_name
             )
-        else:
+        elif selected_mode == "Сообщения":
+            self.parser_thread = MessageParserThread(
+                self.api_id_input.text(),
+                self.api_hash_input.text(),
+                link,
+                max_members,
+                self.session_name
+            )
+        else: # Участники
             self.parser_thread = TelegramParserThread(
                 self.api_id_input.text(),
                 self.api_hash_input.text(),
