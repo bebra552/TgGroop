@@ -599,46 +599,29 @@ class ReactionParserThread(TelegramParserThread):
                 self.error_signal.emit("ℹ️ У поста нет реакций")
                 return
 
-            # Унифицируем список ReactionCount объектов
-            if hasattr(message.reactions, "results"):
-                reaction_list = message.reactions.results
-            elif isinstance(message.reactions, list):
-                reaction_list = message.reactions
-            else:
-                reaction_list = []
-
-            if not reaction_list:
-                self.error_signal.emit("ℹ️ Формат реакций не поддерживается текущей версией Pyrogram")
-                return
-
+            # Получаем все реакции единым запросом
             parsed = []
-            total_count = sum(rc.count for rc in reaction_list)
-            self.progress_bar_max = min(total_count, self.max_members)
             processed = 0
-            for rc in reaction_list:
-                if not self.is_running or processed >= self.max_members:
+            async for reactor in self.client.get_message_reactions(chat.id, msg_id, limit=self.max_members):
+                if not self.is_running:
                     break
-                emoji = rc.reaction.emoticon if hasattr(rc.reaction, 'emoticon') else '🧩'
-                try:
-                    async for usr in self.client.get_message_reactions(chat.id, msg_id, rc.reaction, limit=self.max_members):
-                        if not self.is_running or processed >= self.max_members:
-                            break
-                        user_data = {
-                            'Emoji': emoji,
-                            'User ID': usr.id,
-                            'Username': usr.username or '',
-                            'First Name': usr.first_name or '',
-                            'Last Name': usr.last_name or ''
-                        }
-                        parsed.append(user_data)
-                        processed += 1
-                        if processed % 50 == 0:
-                            self.progress_signal.emit(f"🔄 Собрано реакций: {processed}/{self.max_members}")
-                            self.progress_value.emit(processed)
-                        if processed >= self.max_members:
-                            break
-                except Exception as e:
-                    self.progress_signal.emit(f"⚠️ Не удалось получить реакцию {emoji}: {e}")
+                emoji = getattr(reactor.reaction, 'emoticon', '🧩')
+                usr = reactor
+                user_data = {
+                    'Emoji': emoji,
+                    'User ID': usr.id,
+                    'Username': usr.username or '',
+                    'First Name': usr.first_name or '',
+                    'Last Name': usr.last_name or ''
+                }
+                parsed.append(user_data)
+                processed += 1
+                if processed % 50 == 0:
+                    self.progress_signal.emit(f"🔄 Собрано реакций: {processed}/{self.max_members}")
+                    self.progress_value.emit(processed)
+                if processed >= self.max_members:
+                    break
+ 
             self.finished_signal.emit(f"Реакции поста #{msg_id}", parsed)
         except Exception as e:
             if self.is_running:
