@@ -148,7 +148,7 @@ jobs:
    - name: Install Python dependencies
      run: |
        pip install PyQt5==5.15.10
-       pip install pyrogram==2.0.106
+       pip install "pyrogram>=2.0.108"
        pip install TgCrypto==1.2.5
 
    - name: Update main.py to use PyQt5
