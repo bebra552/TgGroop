@@ -744,8 +744,7 @@ class TelegramParserGUI(QMainWindow):
             "• Скам аккаунт\n"
             "• Premium подписка\n"
             "• Режим 'Сообщения' – последние N сообщений\n"
-            "• Режим 'Комментарии' – комментарии к посту\n"
-            "• Режим 'Реакции' – пользователи, поставившие реакции к посту"
+            "• Режим 'Комментарии' – комментарии к посту"
             )
         data_info_text.setStyleSheet("color: #333; padding: 10px; font-size: 12px;")
         data_info_layout.addWidget(data_info_text)
@@ -809,7 +808,7 @@ class TelegramParserGUI(QMainWindow):
         mode_layout = QHBoxLayout()
         mode_label = QLabel("🛠️ Режим:")
         self.mode_combo = QComboBox()
-        self.mode_combo.addItems(["Участники", "Комментарии", "Сообщения", "Реакции"])
+        self.mode_combo.addItems(["Участники", "Комментарии", "Сообщения"])
         mode_layout.addWidget(mode_label)
         mode_layout.addWidget(self.mode_combo)
         mode_layout.addStretch()
@@ -957,18 +956,7 @@ class TelegramParserGUI(QMainWindow):
                 max_members,
                 self.session_name
             )
-        elif selected_mode == "Реакции":
-            if not is_post_link:
-                QMessageBox.warning(self, "Ошибка", "Выбран режим 'Реакции', но ссылка не является ссылкой на пост.")
-                self.reset_ui()
-                return
-            self.parser_thread = ReactionParserThread(
-                self.api_id_input.text(),
-                self.api_hash_input.text(),
-                link,
-                max_members,
-                self.session_name
-            )
+        # режим "Реакции" временно отключён
         else: # Участники
             self.parser_thread = TelegramParserThread(
                 self.api_id_input.text(),
